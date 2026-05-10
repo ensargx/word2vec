@@ -1,6 +1,9 @@
 import os
 import csv
 import torch
+import signal
+import sys
+import re
 from src.config import DEVICE, CHECKPOINT_DIR
 
 class Trainer:
@@ -8,37 +11,67 @@ class Trainer:
         self.model = model
         self.optimizer = optimizer
         self.log_interval = log_interval
-
-        self.current_epoch = 0
         self.csv_path = os.path.join(CHECKPOINT_DIR, "train_log.csv")
+        self.stop_requested = False
 
         os.makedirs(CHECKPOINT_DIR, exist_ok=True)
         self._init_csv()
+        signal.signal(signal.SIGINT, self._signal_handler)
+
+    def _signal_handler(self, _sig, _frame):
+        if not self.stop_requested:
+            print("\n[!] Durdurma sinyali alındı. Mevcut epoch bitince duracak...")
+            self.stop_requested = True
+        else:
+            print("\n[!] Zorla kapatılıyor...")
+            sys.exit(0)
 
     def _init_csv(self):
-        """Dosya yoksa header (başlık) oluşturur."""
         if not os.path.exists(self.csv_path):
             with open(self.csv_path, 'w', newline='') as f:
                 writer = csv.writer(f)
                 writer.writerow(["epoch", "batch", "loss"])
 
     def log_to_csv(self, epoch, batch, loss):
-        """Loss değerini CSV dosyasının sonuna ekler."""
         with open(self.csv_path, 'a', newline='') as f:
             writer = csv.writer(f)
             writer.writerow([epoch, batch, f"{loss:.6f}"])
 
-    def train(self, loader, epochs):
-        print(f"[*] Kayıt dosyası: {self.csv_path}")
+    def load_latest_checkpoint(self):
+        """Klasörü tarar, en son epoch'u bulur ve yükler."""
+        files = [f for f in os.listdir(CHECKPOINT_DIR) if f.startswith("model_e") and f.endswith(".pt")]
+        if not files:
+            print("[*] Kayıtlı model bulunamadı. Sıfırdan başlanıyor.")
+            return 0
 
-        for epoch in range(epochs):
-            self.current_epoch = epoch
+        # model_e{n}.pt formatındaki n değerlerini çek
+        epochs = [int(re.search(r'model_e(\d+)', f).group(1)) for f in files]
+        latest_epoch = max(epochs)
+
+        path = os.path.join(CHECKPOINT_DIR, f"model_e{latest_epoch}.pt")
+        print(f"[+] En son bulunan model yükleniyor: {path}")
+
+        checkpoint = torch.load(path, map_location=DEVICE)
+        # Eğer checkpoint içinde sadece state_dict değil de tüm 'state' varsa onu kullan
+        if isinstance(checkpoint, dict) and 'state_dict' in checkpoint:
+            self.model.load_state_dict(checkpoint['state_dict'])
+            self.optimizer.load_state_dict(checkpoint['optimizer'])
+        else:
+            self.model.load_state_dict(checkpoint)
+
+        return latest_epoch + 1
+
+    def train(self, loader, start_epoch=0):
+        print(f"[*] Eğitim {start_epoch}. epoch üzerinden başlatıldı.")
+        epoch = start_epoch
+
+        while True:
+            total_loss = 0
+            batch_count = 0
 
             for i, (pos_u, pos_v, neg_v) in enumerate(loader):
-                # GPU/Device Transfer
                 pos_u, pos_v, neg_v = pos_u.to(DEVICE), pos_v.to(DEVICE), neg_v.to(DEVICE)
 
-                # Optimizer step
                 self.optimizer.zero_grad()
                 loss = self.model(pos_u, pos_v, neg_v)
                 loss.backward()
@@ -49,4 +82,21 @@ class Trainer:
                     self.log_to_csv(epoch, i, current_loss)
                     print(f"E:{epoch} | B:{i} | Loss:{current_loss:.4f}")
 
-            torch.save(self.model.state_dict(), os.path.join(CHECKPOINT_DIR, f"model_e{epoch}.pt"))
+                batch_count += 1
+                total_loss += loss.item()
+
+            avg_loss = total_loss / batch_count
+            print(f"\n--- Epoch {epoch} bitti. Ortalama Loss: {avg_loss:.4f} ---")
+
+            state = {
+                'epoch': epoch,
+                'state_dict': self.model.state_dict(),
+                'optimizer': self.optimizer.state_dict()
+            }
+            torch.save(state, os.path.join(CHECKPOINT_DIR, f"model_e{epoch}.pt"))
+
+            if self.stop_requested:
+                print("[*] Eğitim sonlandırıldı.")
+                break
+
+            epoch += 1
