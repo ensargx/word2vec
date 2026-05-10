@@ -14,4 +14,4 @@ wheels/
 
 .ipynb_checkpoints
 
-skipgram.pt
+checkpoints/
