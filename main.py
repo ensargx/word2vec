@@ -39,16 +39,30 @@ def main():
         }
         save_processed_data(bundle)
 
-    model = SkipGramModel(vocab_size, EMB_DIM).to(DEVICE)
+    model = SkipGramModel(
+        vocab_size=vocab_size,
+        emb_dim=EMB_DIM,
+        unigram_table=unigram_table,
+        k_neg=K_NEG
+    ).to(DEVICE)
+    model = torch.compile(model)
     optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
 
-    trainer = Trainer(model, optimizer, log_interval=100)
+    trainer = Trainer(model, optimizer, EMB_DIM, log_interval=100)
     start_epoch = trainer.load_latest_checkpoint()
 
-    dataset = SkipGramDataset(train_ready, word2idx, unigram_table, k=K_NEG, window_size=5)
-    loader = DataLoader(dataset, batch_size=BATCH_SIZE)
+    train_indices = [word2idx[w] for w in train_ready]
+    dataset = SkipGramDataset(train_indices, window_size=5)
+    loader = DataLoader(
+        dataset,
+        batch_size=BATCH_SIZE,
+        num_workers=8,
+        pin_memory=True,
+        persistent_workers=True, 
+        shuffle=False
+    )
 
-    trainer.train(loader, start_epoch=start_epoch)
+    trainer.train(loader, start_epoch=start_epoch, max_epochs=EPOCHS)
 
 if __name__ == "__main__":
     main()
