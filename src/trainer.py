@@ -68,6 +68,7 @@ class Trainer:
         while True:
             total_loss = 0
             batch_count = 0
+            epoch_logs = []
 
             for i, (pos_u, pos_v, neg_v) in enumerate(loader):
                 pos_u, pos_v, neg_v = pos_u.to(DEVICE), pos_v.to(DEVICE), neg_v.to(DEVICE)
@@ -79,11 +80,14 @@ class Trainer:
 
                 if i % self.log_interval == 0:
                     current_loss = loss.item()
-                    self.log_to_csv(epoch, i, current_loss)
+                    epoch_logs.append((i, current_loss))
                     print(f"E:{epoch} | B:{i} | Loss:{current_loss:.4f}")
 
                 batch_count += 1
                 total_loss += loss.item()
+
+            for batch_idx, loss_val in epoch_logs:
+                self.log_to_csv(epoch, batch_idx, loss_val)
 
             avg_loss = total_loss / batch_count
             print(f"\n--- Epoch {epoch} bitti. Ortalama Loss: {avg_loss:.4f} ---")

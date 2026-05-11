@@ -1,3 +1,4 @@
+import torch
 import os
 import numpy as np
 from collections import Counter
@@ -43,3 +44,7 @@ def list_checkpoints():
         return []
     files = [f for f in os.listdir(CHECKPOINT_DIR) if f.endswith('.pt')]
     return sorted(files, key=lambda x: os.path.getmtime(os.path.join(CHECKPOINT_DIR, x)), reverse=True)
+
+def set_seed(seed=42):
+    np.random.seed(seed)
+    torch.manual_seed(seed)

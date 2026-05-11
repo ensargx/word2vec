@@ -11,7 +11,6 @@ EMB_DIM = _cfg['training']['emb_dim']
 BATCH_SIZE = _cfg['training']['batch_size']
 K_NEG = _cfg['training']['k_neg']
 LEARNING_RATE = _cfg['training']['learning_rate']
-EPOCHS = _cfg['training']['epochs']
 
 CHECKPOINT_DIR = _cfg['paths']['checkpoint_dir']
 LOG_FILE = _cfg['paths']['log_file']

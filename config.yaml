@@ -3,7 +3,6 @@ training:
   batch_size: 1024
   k_neg: 5
   learning_rate: 0.001
-  epochs: 15
 
 paths:
   checkpoint_dir: "checkpoints"

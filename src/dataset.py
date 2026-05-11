@@ -1,3 +1,4 @@
+import os
 import numpy as np
 from torch.utils.data import IterableDataset
 import torch
@@ -33,3 +34,19 @@ class SkipGramDataset(IterableDataset):
             for pos_u, pos_v in pairs:
                 neg_v = self.get_negative_samples([pos_u, pos_v])
                 yield torch.tensor(pos_u), torch.tensor(pos_v), torch.tensor(neg_v)
+
+def save_processed_data(data_dict, filename="training_data.pt", data_dir="data"):
+    """Sözlük ve eğitim verilerini torch formatında kaydeder."""
+    if not os.path.exists(data_dir):
+        os.makedirs(data_dir)
+    path = os.path.join(data_dir, filename)
+    torch.save(data_dict, path)
+
+def load_processed_data(filename="training_data.pt", data_dir="data"):
+    """Torch ile kaydedilmiş paketi geri yükler."""
+    path = os.path.join(data_dir, filename)
+    if not os.path.exists(path):
+        return None
+    from src.config import DEVICE
+    data = torch.load(path, map_location=DEVICE, weights_only=False)
+    return data

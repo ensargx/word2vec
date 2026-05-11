@@ -4,22 +4,42 @@ import torch
 from torch.utils.data import DataLoader
 
 from src.config import *
-from src.utils import split_data, subsampling, create_unigram_table
-from src.dataset import SkipGramDataset
+from src.utils import set_seed, split_data, subsampling, create_unigram_table
+from src.dataset import SkipGramDataset, load_processed_data, save_processed_data
 from src.model import SkipGramModel
 from src.trainer import Trainer
 
 def main():
-    ds = load_dataset(DATASET_NAME)
-    train_raw, _, _ = split_data(ds)
-    full_counts = Counter(train_raw)
-    train_ready = subsampling([w for w in train_raw if full_counts[w] >= 5])
+    set_seed(42)
+    bundle = load_processed_data()
 
-    vocab = sorted(list(set(train_ready)))
-    word2idx = {word: i for i, word in enumerate(vocab)}
-    unigram_table = create_unigram_table({w: full_counts[w] for w in vocab}, vocab)
+    if bundle:
+        train_ready = bundle['train_ready']
+        word2idx = bundle['word2idx']
+        unigram_table = bundle['unigram_table']
+        vocab_size = bundle['vocab_size']
+    else:
+        ds = load_dataset(DATASET_NAME)
+        train_raw, test_raw, validation_raw = split_data(ds)
+        train_raw = train_raw + test_raw + validation_raw
+        full_counts = Counter(train_raw)
 
-    model = SkipGramModel(len(vocab), EMB_DIM).to(DEVICE)
+        vocab = sorted([w for w, count in full_counts.items() if count >= 5])
+        vocab_size = len(vocab)
+        word2idx = {word: i for i, word in enumerate(vocab)}
+
+        unigram_table = create_unigram_table({w: full_counts[w] for w in vocab}, vocab)
+        train_ready = subsampling([w for w in train_raw if full_counts[w] >= 5])
+
+        bundle = {
+            'train_ready': train_ready,
+            'word2idx': word2idx,
+            'unigram_table': unigram_table,
+            'vocab_size': vocab_size
+        }
+        save_processed_data(bundle)
+
+    model = SkipGramModel(vocab_size, EMB_DIM).to(DEVICE)
     optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
 
     trainer = Trainer(model, optimizer, log_interval=100)
