@@ -1,7 +1,10 @@
 from collections import Counter
+import argparse
 from datasets import load_dataset
 import torch
 from torch.utils.data import DataLoader
+import torch.nn.functional as F
+import pandas as pd
 
 from src.config import *
 from src.utils import set_seed, split_data, subsampling, create_unigram_table
@@ -9,10 +12,8 @@ from src.dataset import SkipGramDataset, load_processed_data, save_processed_dat
 from src.model import SkipGramModel
 from src.trainer import Trainer
 
-def main():
-    set_seed(42)
+def load_or_process_data():
     bundle = load_processed_data()
-
     if bundle:
         train_ready = bundle['train_ready']
         word2idx = bundle['word2idx']
@@ -32,13 +33,18 @@ def main():
         train_ready = subsampling([w for w in train_raw if full_counts[w] >= 5])
 
         bundle = {
-            'train_ready': train_ready,
-            'word2idx': word2idx,
-            'unigram_table': unigram_table,
-            'vocab_size': vocab_size
-        }
+                'train_ready': train_ready,
+                'word2idx': word2idx,
+                'unigram_table': unigram_table,
+                'vocab_size': vocab_size
+                }
         save_processed_data(bundle)
+    return train_ready, word2idx, unigram_table, vocab_size
 
+def training():
+    set_seed(42)
+
+    train_ready, word2idx, unigram_table, vocab_size = load_or_process_data()
     model = SkipGramModel(
         vocab_size=vocab_size,
         emb_dim=EMB_DIM,
@@ -63,6 +69,109 @@ def main():
     )
 
     trainer.train(loader, start_epoch=start_epoch, max_epochs=EPOCHS)
+
+def get_embeddings_and_vocabs(dim, epoch):
+    """Sadece gerekli olan embedding tensörünü ve sözlükleri yükler."""
+    model_path = os.path.join(CHECKPOINT_DIR, f"dim_{dim}", f"model_e{epoch}.pt")
+
+    if not os.path.exists(model_path):
+        return None
+
+    checkpoint = torch.load(model_path, map_location=DEVICE, weights_only=False)
+    state_dict = checkpoint['state_dict'] if 'state_dict' in checkpoint else checkpoint
+
+    key = "u_embeddings.weight" if "u_embeddings.weight" in state_dict else "_orig_mod.u_embeddings.weight"
+    return state_dict[key]
+
+def evaluate_analogy_rank(embeddings, word2idx, idx2word, a, b, c, expected):
+    """v(a) - v(b) + v(c) işlemini yapar ve beklenen kelimenin sırasını döner."""
+    words = [w.lower() for w in [a, b, c, expected]]
+    if any(w not in word2idx for w in words):
+        return None, "missing"
+
+    idx_a, idx_b, idx_c, idx_exp = [word2idx[w] for w in words]
+
+    target_vec = (embeddings[idx_a] - embeddings[idx_b] + embeddings[idx_c]).unsqueeze(0)
+
+    sims = F.cosine_similarity(embeddings, target_vec)
+    sorted_indices = torch.argsort(sims, descending=True)
+
+    rank = (sorted_indices == idx_exp).nonzero(as_tuple=True)[0].item() + 1
+    top_word = idx2word[sorted_indices[0].item()]
+
+    return rank, top_word
+
+def results():
+    dims = [128, 256, 512]
+    epochs = [10, 15]
+    analogies_dict = {
+        "Aile ve Cinsiyet": [
+            ("king", "man", "woman", "queen"),
+            ("prince", "boy", "girl", "princess"),
+            ("uncle", "man", "woman", "aunt"),
+            ("son", "boy", "girl", "daughter"),
+            ("brother", "man", "woman", "sister")
+        ],
+        "Başkentler": [
+            ("turkey", "ankara", "france", "paris"),
+            ("germany", "berlin", "italy", "rome"),
+            ("russia", "moscow", "spain", "madrid"),
+            ("japan", "tokyo", "egypt", "cairo"),
+            ("greece", "athens", "china", "beijing")
+        ],
+        "Sıfatlar": [
+            ("bigger", "big", "smaller", "small"),
+            ("faster", "fast", "slower", "slow"),
+            ("better", "good", "worse", "bad"),
+            ("stronger", "strong", "weaker", "weak"),
+            ("harder", "hard", "easier", "easy")
+        ],
+        "Fiil Çekimleri": [
+            ("ate", "eat", "played", "play"),
+            ("going", "go", "walking", "walk"),
+            ("took", "take", "gave", "give"),
+            ("swimming", "swim", "running", "run"),
+            ("sang", "sing", "danced", "dance")
+        ]
+    }
+    _, word2idx, _, _ = load_or_process_data()
+    idx2word = {idx: word for word, idx in word2idx.items()}
+
+    for dim in dims:
+        for epoch in epochs:
+            embeddings = get_embeddings_and_vocabs(dim, epoch-1)
+            all_final_results = []
+            for cat, pairs in analogies_dict.items():
+                for a, b, c, expected in pairs:
+                    rank, top_word = evaluate_analogy_rank(embeddings, word2idx, idx2word, a, b, c, expected)
+                    all_final_results.append({
+                        "Boyut": dim,
+                        "Epoch": epoch,
+                        "Kategori": cat,
+                        "Soru (Analoji)": f"{a}-{b}+{c}",
+                        "Beklenen Kelime": expected,
+                        "Modelin Tahmini": top_word if rank else "Eksik Kelime",
+                        "Sıralama (Rank)": rank if rank else "N/A"
+                    })
+                    print(f'dim: {dim} | epoch: {epoch} | analogy: {a}-{b}+{c} | expected: {expected} | rank: {rank} | find: {top_word}')
+
+    df = pd.DataFrame(all_final_results)
+    os.makedirs(RESULTS_DIR, exist_ok=True)
+    df.to_csv(os.path.join(RESULTS_DIR, "results.csv"), index=False, encoding='utf-8-sig')
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Word2Vec Research Implementation"
+    )
+
+    subparsers = parser.add_subparsers(dest="mode", required=True)
+    subparsers.add_parser("training", help="Run training pipeline")
+    subparsers.add_parser("results", help="Run results evaluation")
+    args = parser.parse_args()
+    if args.mode == "training":
+        training()
+    elif args.mode == "results":
+        results()
 
 if __name__ == "__main__":
     main()

@@ -1,5 +1,5 @@
 training:
-  emb_dim: 128
+  emb_dim: 512
   batch_size: 4096
   k_neg: 5
   learning_rate: 0.001
@@ -9,3 +9,4 @@ paths:
   checkpoint_dir: "checkpoints"
   log_file: "training_loss.json"
   dataset_name: "afmck/text8"
+  results_dir: "results"

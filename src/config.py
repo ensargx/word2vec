@@ -16,5 +16,6 @@ EPOCHS = _cfg['training']['epochs']
 CHECKPOINT_DIR = _cfg['paths']['checkpoint_dir']
 LOG_FILE = _cfg['paths']['log_file']
 DATASET_NAME = _cfg['paths']['dataset_name']
+RESULTS_DIR = _cfg['paths']['results_dir']
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
