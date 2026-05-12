@@ -84,22 +84,41 @@ def get_embeddings_and_vocabs(dim, epoch):
     return state_dict[key]
 
 def evaluate_analogy_rank(embeddings, word2idx, idx2word, a, b, c, expected):
-    """v(a) - v(b) + v(c) işlemini yapar ve beklenen kelimenin sırasını döner."""
-    words = [w.lower() for w in [a, b, c, expected]]
-    if any(w not in word2idx for w in words):
-        return None, "missing"
+    """
+    v(a) - v(b) + v(c) işlemini yapar, girdi kelimelerini (a, b, c) sonuçtan dışlar.
+    Girdi:
+        embeddings: Ham embedding tensörü [vocab_size, emb_dim]
+        word2idx, idx2word: Sözlükler
+        a, b, c, expected: Analoji kelimeleri
+    Çıktı:
+        rank: Beklenen kelimenin filtrelenmiş listedeki sırası
+        top_word: Filtrelenmiş listedeki 1. sıradaki kelime
+        similarity: Beklenen kelimenin kosinüs benzerlik skoru (0-1 arası)
+    """
+    input_words = [a.lower(), b.lower(), c.lower()]
+    target_word = expected.lower()
 
-    idx_a, idx_b, idx_c, idx_exp = [word2idx[w] for w in words]
+    all_words = input_words + [target_word]
+    if any(w not in word2idx for w in all_words):
+        return None, "missing", 0.0
 
+    idx_a, idx_b, idx_c, idx_exp = [word2idx[w] for w in all_words]
     target_vec = (embeddings[idx_a] - embeddings[idx_b] + embeddings[idx_c]).unsqueeze(0)
 
     sims = F.cosine_similarity(embeddings, target_vec)
-    sorted_indices = torch.argsort(sims, descending=True)
 
+    raw_sim = sims[idx_exp].item()
+    norm_sim = (raw_sim + 1) / 2
+
+    eval_sims = sims.clone()
+    for idx in [idx_a, idx_b, idx_c]:
+        eval_sims[idx] = -float('inf')
+
+    sorted_indices = torch.argsort(eval_sims, descending=True)
     rank = (sorted_indices == idx_exp).nonzero(as_tuple=True)[0].item() + 1
     top_word = idx2word[sorted_indices[0].item()]
 
-    return rank, top_word
+    return rank, top_word, norm_sim
 
 def results():
     dims = [128, 256, 512]
@@ -136,14 +155,14 @@ def results():
     }
     _, word2idx, _, _ = load_or_process_data()
     idx2word = {idx: word for word, idx in word2idx.items()}
+    all_final_results = []
 
     for dim in dims:
         for epoch in epochs:
             embeddings = get_embeddings_and_vocabs(dim, epoch-1)
-            all_final_results = []
             for cat, pairs in analogies_dict.items():
                 for a, b, c, expected in pairs:
-                    rank, top_word = evaluate_analogy_rank(embeddings, word2idx, idx2word, a, b, c, expected)
+                    rank, top_word, norm_sim = evaluate_analogy_rank(embeddings, word2idx, idx2word, a, b, c, expected)
                     all_final_results.append({
                         "Boyut": dim,
                         "Epoch": epoch,
@@ -151,7 +170,8 @@ def results():
                         "Soru (Analoji)": f"{a}-{b}+{c}",
                         "Beklenen Kelime": expected,
                         "Modelin Tahmini": top_word if rank else "Eksik Kelime",
-                        "Sıralama (Rank)": rank if rank else "N/A"
+                        "Sıralama (Rank)": rank if rank else "N/A",
+                        "Benzerlik": norm_sim
                     })
                     print(f'dim: {dim} | epoch: {epoch} | analogy: {a}-{b}+{c} | expected: {expected} | rank: {rank} | find: {top_word}')
 
