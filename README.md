@@ -15,7 +15,9 @@ Burada $c$ bağlam penceresinin boyutunu, $T$ ise toplam kelime sayısını ifad
 
 ### 2. Negative Sampling ve Hesaplama Verimliliği
 Bir bağlam kelimesinin olasılığı normal şartlarda **Softmax** fonksiyonu ile hesaplanır:
+
 $$p(w_O | w_I) = \frac{\exp({v'_{w_O}}^\top v_{w_I})}{\sum_{w=1}^{V} \exp({v'_{w}}^\top v_{w_I})}$$
+
 Ancak sözlük boyutu ($V$) on binlerce kelimeye ulaştığında, paydadaki toplam işlemi hesaplama açısından çok maliyetlidir. Bu sorunu aşmak için projemizde **Negative Sampling** yöntemi uygulanmıştır:
 
 $$E = \log \sigma({v'_{w_O}}^\top v_{w_I}) + \sum_{i=1}^{k} \mathbb{E}_{w_i \sim P_n(w)} \left[ \log \sigma(-{v'_{w_i}}^\top v_{w_I}) \right]$$
