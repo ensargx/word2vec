@@ -5,6 +5,7 @@ import torch
 from torch.utils.data import DataLoader
 import torch.nn.functional as F
 import pandas as pd
+import matplotlib.pyplot as plt
 
 from src.config import *
 from src.utils import set_seed, split_data, subsampling, create_unigram_table
@@ -179,19 +180,63 @@ def results():
     os.makedirs(RESULTS_DIR, exist_ok=True)
     df.to_csv(os.path.join(RESULTS_DIR, "results.csv"), index=False, encoding='utf-8-sig')
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Word2Vec Research Implementation"
-    )
+def plot_results():
+    dims = [128, 256, 512]
+    os.makedirs(RESULTS_DIR, exist_ok=True)
 
-    subparsers = parser.add_subparsers(dest="mode", required=True)
-    subparsers.add_parser("training", help="Run training pipeline")
-    subparsers.add_parser("results", help="Run results evaluation")
+    f_comp, a_comp = plt.subplots(figsize=(12, 7))
+
+    for dim in dims:
+        p = os.path.join(CHECKPOINT_DIR, f"dim_{dim}", "train_log.csv")
+        if not os.path.exists(p):
+            continue
+
+        df = pd.read_csv(p)
+        mb = df['batch'].max() + 1
+        df['s'] = df['epoch'] * mb + df['batch']
+        df['m'] = df['loss'].rolling(window=200, min_periods=1).mean()
+
+        final_loss = df['m'].iloc[-1]
+
+        fig, ax = plt.subplots(figsize=(11, 6))
+        ax.plot(df['s'], df['loss'], alpha=0.45, color='steelblue', lw=1.0)
+        ax.plot(df['s'], df['m'], color='midnightblue', lw=2.5, label=f'Dim {dim} Trend')
+
+        ax.axhline(y=final_loss, color='red', linestyle='--', lw=1.5, alpha=0.8, 
+                   label=f'Final Loss: {final_loss:.4f}')
+
+        ax.set_title(f'Loss Performance (Dim {dim})', fontsize=14, fontweight='bold')
+        ax.set_xlabel('Training Steps')
+        ax.set_ylabel('Loss')
+        ax.grid(True, ls=':', alpha=0.6)
+        ax.legend()
+        fig.tight_layout()
+        fig.savefig(os.path.join(RESULTS_DIR, f"loss_dim{dim}.png"), dpi=300)
+        plt.close(fig)
+
+        a_comp.plot(df['s'], df['m'], label=f'Dimension {dim}', lw=2.2)
+
+    a_comp.set_title('Cross-Dimension Loss Comparison', fontsize=15, fontweight='bold')
+    a_comp.set_xlabel('Steps')
+    a_comp.set_ylabel('Smoothed Loss')
+    a_comp.grid(True, ls=':', alpha=0.6)
+    a_comp.legend()
+    f_comp.tight_layout()
+    f_comp.savefig(os.path.join(RESULTS_DIR, "loss_comparison.png"), dpi=300)
+    plt.close(f_comp)
+
+def main():
+    parser = argparse.ArgumentParser(description="Word2Vec Skip-Gram Research Implementation")
+    parser.add_argument("command", choices=["train", "results", "plot"], help="Command to execute.")
+
     args = parser.parse_args()
-    if args.mode == "training":
+    if args.command == "train":
         training()
-    elif args.mode == "results":
+    elif args.command == "results":
         results()
+    elif args.command == "plot":
+        plot_results()
+
 
 if __name__ == "__main__":
     main()
