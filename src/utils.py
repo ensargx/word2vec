@@ -4,12 +4,7 @@ import numpy as np
 from collections import Counter
 import yaml
 
-from src.config import CHECKPOINT_DIR
-
-def split_data(ds):
-    train, test, validation = ds["train"], ds["test"], ds["validation"]
-    split_text = lambda dataset: [x for x in dataset["text"][0].split() if x]
-    return split_text(train), split_text(test), split_text(validation)
+from src.config import cfg
 
 def subsampling(words, threshold=1e-5):
     counts = Counter(words)
@@ -40,11 +35,7 @@ def load_config(config_path="config.yaml"):
         return yaml.safe_load(f)
 
 def list_checkpoints():
-    if not os.path.exists(CHECKPOINT_DIR):
+    if not os.path.exists(cfg.paths.checkpoint_dir):
         return []
-    files = [f for f in os.listdir(CHECKPOINT_DIR) if f.endswith('.pt')]
-    return sorted(files, key=lambda x: os.path.getmtime(os.path.join(CHECKPOINT_DIR, x)), reverse=True)
-
-def set_seed(seed=42):
-    np.random.seed(seed)
-    torch.manual_seed(seed)
+    files = [f for f in os.listdir(cfg.paths.checkpoint_dir) if f.endswith('.pt')]
+    return sorted(files, key=lambda x: os.path.getmtime(os.path.join(cfg.paths.checkpoint_dir, x)), reverse=True)

@@ -1,3 +1,7 @@
+from collections import Counter
+from src.utils import subsampling, create_unigram_table
+from src.config import cfg
+from datasets import load_dataset
 import os
 import numpy as np
 from torch.utils.data import IterableDataset, get_worker_info
@@ -39,6 +43,13 @@ class SkipGramDataset(IterableDataset):
                 # default_collate fonksiyonuna birakmak (sadece ham deger dondurerek) daha hizlidir.
                 yield target_idx, self.data[j]
 
+def process_data(ds):
+    """
+    dataset'i al ve process et.
+    """
+    train = ds["train"]
+    return train["text"]
+
 def save_processed_data(data_dict, filename="training_data.pt", data_dir="data"):
     """Sözlük ve eğitim verilerini torch formatında kaydeder."""
     if not os.path.exists(data_dir):
@@ -51,6 +62,33 @@ def load_processed_data(filename="training_data.pt", data_dir="data"):
     path = os.path.join(data_dir, filename)
     if not os.path.exists(path):
         return None
-    from src.config import DEVICE
-    data = torch.load(path, map_location=DEVICE, weights_only=False)
+    data = torch.load(path, map_location=cfg.device, weights_only=False)
     return data
+
+def load_or_process_data():
+    bundle = load_processed_data()
+    if bundle:
+        train_ready = bundle['train_ready']
+        word2idx = bundle['word2idx']
+        unigram_table = bundle['unigram_table']
+        vocab_size = bundle['vocab_size']
+    else:
+        ds = load_dataset(cfg.dataset.path, cfg.dataset.name)
+        train_raw = process_data(ds)
+        full_counts = Counter(train_raw)
+
+        vocab = sorted([w for w, count in full_counts.items() if count >= 5])
+        vocab_size = len(vocab)
+        word2idx = {word: i for i, word in enumerate(vocab)}
+
+        unigram_table = create_unigram_table({w: full_counts[w] for w in vocab}, vocab)
+        train_ready = subsampling([w for w in train_raw if full_counts[w] >= 5])
+
+        bundle = {
+                'train_ready': train_ready,
+                'word2idx': word2idx,
+                'unigram_table': unigram_table,
+                'vocab_size': vocab_size
+                }
+        save_processed_data(bundle)
+    return train_ready, word2idx, unigram_table, vocab_size

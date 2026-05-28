@@ -1,46 +1,20 @@
-from collections import Counter
 import argparse
-from datasets import load_dataset
 import torch
 from torch.utils.data import DataLoader
 import torch.nn.functional as F
 import pandas as pd
+import numpy as np
 import matplotlib.pyplot as plt
+import os
 
-from src.config import *
-from src.utils import set_seed, split_data, subsampling, create_unigram_table
-from src.dataset import SkipGramDataset, load_processed_data, save_processed_data
+from src.config import cfg
+from src.dataset import SkipGramDataset, load_or_process_data
 from src.model import SkipGramModel
 from src.trainer import Trainer
 
-def load_or_process_data():
-    bundle = load_processed_data()
-    if bundle:
-        train_ready = bundle['train_ready']
-        word2idx = bundle['word2idx']
-        unigram_table = bundle['unigram_table']
-        vocab_size = bundle['vocab_size']
-    else:
-        ds = load_dataset(DATASET_NAME)
-        train_raw, test_raw, validation_raw = split_data(ds)
-        train_raw = train_raw + test_raw + validation_raw
-        full_counts = Counter(train_raw)
-
-        vocab = sorted([w for w, count in full_counts.items() if count >= 5])
-        vocab_size = len(vocab)
-        word2idx = {word: i for i, word in enumerate(vocab)}
-
-        unigram_table = create_unigram_table({w: full_counts[w] for w in vocab}, vocab)
-        train_ready = subsampling([w for w in train_raw if full_counts[w] >= 5])
-
-        bundle = {
-                'train_ready': train_ready,
-                'word2idx': word2idx,
-                'unigram_table': unigram_table,
-                'vocab_size': vocab_size
-                }
-        save_processed_data(bundle)
-    return train_ready, word2idx, unigram_table, vocab_size
+def set_seed(seed=42):
+    np.random.seed(seed)
+    torch.manual_seed(seed)
 
 def training():
     set_seed(42)
@@ -48,37 +22,37 @@ def training():
     train_ready, word2idx, unigram_table, vocab_size = load_or_process_data()
     model = SkipGramModel(
         vocab_size=vocab_size,
-        emb_dim=EMB_DIM,
+        emb_dim=cfg.training.emb_dim,
         unigram_table=unigram_table,
-        k_neg=K_NEG
-    ).to(DEVICE)
+        k_neg=cfg.training.k_neg
+    ).to(cfg.device)
     model = torch.compile(model)
-    optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
+    optimizer = torch.optim.Adam(model.parameters(), lr=cfg.training.learning_rate)
 
-    trainer = Trainer(model, optimizer, EMB_DIM, log_interval=100)
+    trainer = Trainer(model, optimizer, cfg.training.emb_dim, log_interval=100)
     start_epoch = trainer.load_latest_checkpoint()
 
     train_indices = [word2idx[w] for w in train_ready]
     dataset = SkipGramDataset(train_indices, window_size=5)
     loader = DataLoader(
         dataset,
-        batch_size=BATCH_SIZE,
+        batch_size=cfg.training.batch_size,
         num_workers=8,
         pin_memory=True,
         persistent_workers=True, 
         shuffle=False
     )
 
-    trainer.train(loader, start_epoch=start_epoch, max_epochs=EPOCHS)
+    trainer.train(loader, start_epoch=start_epoch, max_epochs=cfg.training.epochs)
 
 def get_embeddings_and_vocabs(dim, epoch):
     """Sadece gerekli olan embedding tensörünü ve sözlükleri yükler."""
-    model_path = os.path.join(CHECKPOINT_DIR, f"dim_{dim}", f"model_e{epoch}.pt")
+    model_path = os.path.join(cfg.paths.checkpoint_dir, f"dim_{dim}", f"model_e{epoch}.pt")
 
     if not os.path.exists(model_path):
         return None
 
-    checkpoint = torch.load(model_path, map_location=DEVICE, weights_only=False)
+    checkpoint = torch.load(model_path, map_location=cfg.device, weights_only=False)
     state_dict = checkpoint['state_dict'] if 'state_dict' in checkpoint else checkpoint
 
     key = "u_embeddings.weight" if "u_embeddings.weight" in state_dict else "_orig_mod.u_embeddings.weight"
@@ -177,17 +151,17 @@ def results():
                     print(f'dim: {dim} | epoch: {epoch} | analogy: {a}-{b}+{c} | expected: {expected} | rank: {rank} | find: {top_word}')
 
     df = pd.DataFrame(all_final_results)
-    os.makedirs(RESULTS_DIR, exist_ok=True)
-    df.to_csv(os.path.join(RESULTS_DIR, "results.csv"), index=False, encoding='utf-8-sig')
+    os.makedirs(cfg.paths.results_dir, exist_ok=True)
+    df.to_csv(os.path.join(cfg.paths.results_dir, "results.csv"), index=False, encoding='utf-8-sig')
 
 def plot_results():
     dims = [128, 256, 512]
-    os.makedirs(RESULTS_DIR, exist_ok=True)
+    os.makedirs(cfg.paths.results_dir, exist_ok=True)
 
     f_comp, a_comp = plt.subplots(figsize=(12, 7))
 
     for dim in dims:
-        p = os.path.join(CHECKPOINT_DIR, f"dim_{dim}", "train_log.csv")
+        p = os.path.join(cfg.paths.checkpoint_dir, f"dim_{dim}", "train_log.csv")
         if not os.path.exists(p):
             continue
 
@@ -211,7 +185,7 @@ def plot_results():
         ax.grid(True, ls=':', alpha=0.6)
         ax.legend()
         fig.tight_layout()
-        fig.savefig(os.path.join(RESULTS_DIR, f"loss_dim{dim}.png"), dpi=300)
+        fig.savefig(os.path.join(cfg.paths.results_dir, f"loss_dim{dim}.png"), dpi=300)
         plt.close(fig)
 
         a_comp.plot(df['s'], df['m'], label=f'Dimension {dim}', lw=2.2)
@@ -222,7 +196,7 @@ def plot_results():
     a_comp.grid(True, ls=':', alpha=0.6)
     a_comp.legend()
     f_comp.tight_layout()
-    f_comp.savefig(os.path.join(RESULTS_DIR, "loss_comparison.png"), dpi=300)
+    f_comp.savefig(os.path.join(cfg.paths.results_dir, "loss_comparison.png"), dpi=300)
     plt.close(f_comp)
 
 def main():

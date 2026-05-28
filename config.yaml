@@ -8,5 +8,8 @@ training:
 paths:
   checkpoint_dir: "checkpoints"
   log_file: "training_loss.json"
-  dataset_name: "afmck/text8"
   results_dir: "results"
+
+dataset:
+  path: "wikimedia/wikipedia"
+  name: "20231101.tr"

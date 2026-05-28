@@ -4,7 +4,7 @@ import torch
 import signal
 import sys
 import re
-from src.config import DEVICE, CHECKPOINT_DIR
+from src.config import cfg
 from torch.amp import autocast, GradScaler
 
 class Trainer:
@@ -16,7 +16,7 @@ class Trainer:
         self.scaler = GradScaler()
         self.dim = dim
 
-        os.makedirs(CHECKPOINT_DIR, exist_ok=True)
+        os.makedirs(cfg.paths.checkpoint_dir, exist_ok=True)
         self._init_csv()
         signal.signal(signal.SIGINT, self._signal_handler)
 
@@ -44,7 +44,7 @@ class Trainer:
 
     def _get_dim_path(self):
         """boyuta özel klasör yolunu döndürür ve yoksa oluşturur."""
-        path = os.path.join(CHECKPOINT_DIR, f"dim_{self.dim}")
+        path = os.path.join(cfg.paths.checkpoint_dir, f"dim_{self.dim}")
         os.makedirs(path, exist_ok=True)
         return path
 
@@ -62,7 +62,7 @@ class Trainer:
         path = os.path.join(dim_dir, f"model_e{latest_epoch}.pt")
         print(f"[+] yükleniyor: {path}")
 
-        checkpoint = torch.load(path, map_location=DEVICE, weights_only=False)
+        checkpoint = torch.load(path, map_location=cfg.device, weights_only=False)
         state_dict = checkpoint['state_dict']
 
         if 'optimizer' in checkpoint:
@@ -83,12 +83,12 @@ class Trainer:
             epoch_logs = []
 
             for i, (pos_u, pos_v) in enumerate(loader):
-                pos_u = pos_u.to(DEVICE, non_blocking=True)
-                pos_v = pos_v.to(DEVICE, non_blocking=True)
+                pos_u = pos_u.to(cfg.device, non_blocking=True)
+                pos_v = pos_v.to(cfg.device, non_blocking=True)
 
                 self.optimizer.zero_grad()
 
-                with autocast(device_type='cuda' if 'cuda' in str(DEVICE) else 'cpu'):
+                with autocast(device_type='cuda' if 'cuda' in str(cfg.device) else 'cpu'):
                     loss = self.model(pos_u, pos_v)
 
                 self.scaler.scale(loss).backward()
