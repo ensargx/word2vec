@@ -5,6 +5,23 @@ class SkipGramDataset(IterableDataset):
     def __init__(self, data_idxs, window_size=5):
         self.data = data_idxs
         self.window_size = window_size
+        self.length = self._estimate_len()
+
+    def _estimate_len(self):
+        total = 0
+        avg_window = (self.window_size + 1) / 2
+
+        for sentence in self.data:
+            n = len(sentence)
+            if n < 2:
+                continue
+
+            total += int(n * 2 * avg_window)
+
+        return total
+
+    def __len__(self):
+        return self.length
 
     def __iter__(self):
         worker_info = get_worker_info()

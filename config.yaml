@@ -1,14 +1,30 @@
+seed: 1337
+
 training:
-  batch_size: 4096
-  learning_rate: 0.001
-  epochs: 15
+  batch_size: 512
+  epochs: 1
+  window_size: 5
+  subsampling_threshold: 0.00001
+  use_amp: true
+  grad_clip: 1.0
+  log_interval: 100
+  compile: true
+  compile_mode: "default"
+  optim:
+    name: "AdamW"
+    lr: 0.001
 
 paths:
   tokenizer: "model/tokenizer.joblib"
   subsampled: "model/subsampled.joblib"
+  unigram_probs: "model/unigram_probs.joblib"
+  checkpoint_dir: "model/checkpoints"
+  tensorboard_dir: "runs/word2vec"
   dataset: "data/trwiki.parquet"
 
 model:
   k_neg: 5
   emb_dim: 512
   vocab_size: 500000
+  min_count: 5
+  sparse: false

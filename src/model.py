@@ -3,14 +3,14 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class SkipGramModel(nn.Module):
-    def __init__(self, vocab_size, emb_dim, unigram_probs, k_neg=5):
+    def __init__(self, vocab_size, emb_dim, unigram_probs, k_neg=5, sparse=False):
         super().__init__()
         self.k_neg = k_neg
 
         self.register_buffer("unigram_probs", torch.tensor(unigram_probs, dtype=torch.float32))
 
-        self.u_embeddings = nn.Embedding(vocab_size, emb_dim)
-        self.v_embeddings = nn.Embedding(vocab_size, emb_dim)
+        self.u_embeddings = nn.Embedding(vocab_size, emb_dim, sparse=sparse)
+        self.v_embeddings = nn.Embedding(vocab_size, emb_dim, sparse=sparse)
 
         initrange = 1.0 / emb_dim
         nn.init.uniform_(self.u_embeddings.weight, -initrange, initrange)

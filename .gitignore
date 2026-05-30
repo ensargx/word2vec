@@ -17,3 +17,5 @@ wheels/
 checkpoints/
 data/
 results/
+model/
+runs/
