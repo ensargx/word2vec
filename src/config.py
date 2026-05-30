@@ -16,3 +16,4 @@ def _to_namespace(value):
 cfg = _to_namespace(_cfg)
 
 cfg.device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
+cfg.num_workers = min(8, max(1, (os.cpu_count() or 1) // 2))

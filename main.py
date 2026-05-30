@@ -53,13 +53,14 @@ def load_or_build_artifacts():
 
 def build_loader(subsampled):
     dataset = SkipGramDataset(subsampled, window_size=cfg.training.window_size)
+    num_workers = cfg.num_workers
 
     return DataLoader(
         dataset,
         batch_size=cfg.training.batch_size,
-        num_workers=os.cpu_count(),
+        num_workers=num_workers,
         pin_memory=torch.cuda.is_available(),
-        persistent_workers=os.cpu_count() > 0
+        persistent_workers=num_workers > 0
     )
 
 
