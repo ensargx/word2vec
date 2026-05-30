@@ -11,5 +11,4 @@ paths:
   results_dir: "results"
 
 dataset:
-  path: "wikimedia/wikipedia"
-  name: "20231101.tr"
+  path: "data/trwiki.parquet"
