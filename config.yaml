@@ -1,7 +1,7 @@
 seed: 1337
 
 training:
-  batch_size: 8192
+  batch_size: 32768
   epochs: 1
   window_size: 5
   subsampling_threshold: 0.00001
