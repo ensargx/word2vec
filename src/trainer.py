@@ -2,6 +2,7 @@ from pathlib import Path
 import signal
 import sys
 import time
+from datetime import datetime
 
 import torch
 from torch.amp import autocast, GradScaler
@@ -24,7 +25,8 @@ class Trainer:
         self.ckpt_dir = Path(cfg.paths.checkpoint_dir)
         self.ckpt_dir.mkdir(parents=True, exist_ok=True)
 
-        self.writer = SummaryWriter(log_dir=cfg.paths.tensorboard_dir)
+        run_name = datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.writer = SummaryWriter(log_dir=f"{cfg.paths.tensorboard_dir}/{run_name}")
 
         self.stop_requested = False
         self.force_quit_requested = False
