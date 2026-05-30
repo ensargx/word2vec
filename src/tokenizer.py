@@ -32,7 +32,7 @@ class Tokenizer:
         text = re.sub(r"\b\d+\b", " <|sayi|> ", text)
 
         # apostrof ve tırnak işaretlerini siler, kelimeleri bölmez
-        text = re.sub(r"[\'\"`’‘“”]", "", text)
+        text = re.sub(r"[\u0027\u0022\u0060\u2019\u2018\u201C\u201D]", "", text)
 
         # kelime arasındaki tire dahil tüm tireleri boşluğa çevirir
         text = re.sub(r"[-–—]", " ", text)
@@ -68,15 +68,26 @@ class Tokenizer:
         self.idx2word = vocab
         self.word2idx = {word: idx for idx, word in enumerate(self.idx2word)}
 
-        self.counter = Counter({ word: count for word, count in counter.items() if count >= self.min_count })
-
-        return self
+        return tokenized_ds["tokens"], counter
 
     def index(self, word):
         return self.word2idx.get(word, self.word2idx["<|unk|>"])
 
     def word(self, idx):
         return self.idx2word[idx]
+
+    def encode(self, tokens):
+
+        if isinstance(tokens[0], str):
+            return [self.index(word) for word in tokens]
+    
+        return [
+            [self.index(word) for word in sentence]
+            for sentence in tokens
+        ]
+    
+    def encode_text(self, text):
+        return self.encode(self.tokenize(text))
 
     @classmethod
     def load(cls, path):

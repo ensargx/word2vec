@@ -1,123 +1,130 @@
 import os
-import csv
-import torch
-import signal
 import sys
-import re
-from src.config import cfg
+import signal
+from pathlib import Path
+
+import torch
 from torch.amp import autocast, GradScaler
+from tqdm.auto import tqdm
+
 
 class Trainer:
-    def __init__(self, model, optimizer, dim, log_interval=100):
+    def __init__(
+        self,
+        model,
+        optimizer,
+        device,
+        checkpoint_dir,
+        use_amp=True,
+        grad_clip=None,
+        log_interval=100,
+        save_each_epoch=True,
+    ):
         self.model = model
         self.optimizer = optimizer
+        self.device = torch.device(device)
+        self.checkpoint_dir = Path(checkpoint_dir)
+        self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
+
+        self.use_amp = use_amp and self.device.type == "cuda"
+        self.scaler = GradScaler(enabled=self.use_amp)
+
+        self.grad_clip = grad_clip
         self.log_interval = log_interval
+        self.save_each_epoch = save_each_epoch
         self.stop_requested = False
-        self.scaler = GradScaler()
-        self.dim = dim
 
-        os.makedirs(cfg.paths.checkpoint_dir, exist_ok=True)
-        self._init_csv()
-        signal.signal(signal.SIGINT, self._signal_handler)
+        signal.signal(signal.SIGINT, self._handle_interrupt)
 
-    def _signal_handler(self, _sig, _frame):
+    def _handle_interrupt(self, _sig, _frame):
         if not self.stop_requested:
-            print("\n[!] Durdurma sinyali alındı. Mevcut epoch bitince duracak...")
+            print("\n[!] Stop requested. Current epoch will finish, then checkpoint will be saved.")
             self.stop_requested = True
         else:
-            print("\n[!] Zorla kapatılıyor...")
+            print("\n[!] Forced exit.")
             sys.exit(0)
 
-    def _init_csv(self):
-        if not os.path.exists(self._get_csv_path()):
-            with open(self._get_csv_path(), 'w', newline='') as f:
-                writer = csv.writer(f)
-                writer.writerow(["epoch", "batch", "loss"])
+    def _raw_model(self):
+        return self.model._orig_mod if hasattr(self.model, "_orig_mod") else self.model
 
-    def log_to_csv(self, epoch, batch, loss):
-        with open(self._get_csv_path(), 'a', newline='') as f:
-            writer = csv.writer(f)
-            writer.writerow([epoch, batch, f"{loss:.6f}"])
+    @property
+    def latest_path(self):
+        return self.checkpoint_dir / "latest.pt"
 
-    def _get_csv_path(self):
-        return os.path.join(self._get_dim_path(), "train_log.csv")
+    def save_checkpoint(self, epoch, metrics=None):
+        state = {
+            "epoch": epoch,
+            "model": self._raw_model().state_dict(),
+            "optimizer": self.optimizer.state_dict(),
+            "scaler": self.scaler.state_dict(),
+            "metrics": metrics or {},
+        }
 
-    def _get_dim_path(self):
-        """boyuta özel klasör yolunu döndürür ve yoksa oluşturur."""
-        path = os.path.join(cfg.paths.checkpoint_dir, f"dim_{self.dim}")
-        os.makedirs(path, exist_ok=True)
-        return path
+        torch.save(state, self.latest_path)
 
-    def load_latest_checkpoint(self):
-        """Klasörü tarar, en son epoch'u bulur ve yükler."""
-        dim_dir = self._get_dim_path()
-        files = [f for f in os.listdir(dim_dir) if f.startswith("model_e") and f.endswith(".pt")]
-        if not files:
-            print("[*] Kayıtlı model bulunamadı. Sıfırdan başlanıyor.")
+        if self.save_each_epoch:
+            torch.save(state, self.checkpoint_dir / f"epoch_{epoch:04d}.pt")
+
+    def load_checkpoint(self):
+        if not self.latest_path.exists():
             return 0
 
-        # model_e{n}.pt formatındaki n değerlerini çek
-        epochs = [int(re.search(r'model_e(\d+)', f).group(1)) for f in files]
-        latest_epoch = max(epochs)
-        path = os.path.join(dim_dir, f"model_e{latest_epoch}.pt")
-        print(f"[+] yükleniyor: {path}")
+        ckpt = torch.load(self.latest_path, map_location=self.device, weights_only=False)
 
-        checkpoint = torch.load(path, map_location=cfg.device, weights_only=False)
-        state_dict = checkpoint['state_dict']
+        self._raw_model().load_state_dict(ckpt["model"])
+        self.optimizer.load_state_dict(ckpt["optimizer"])
 
-        if 'optimizer' in checkpoint:
-            self.optimizer.load_state_dict(checkpoint['optimizer'])
+        if "scaler" in ckpt:
+            self.scaler.load_state_dict(ckpt["scaler"])
 
-        raw_model = self.model._orig_mod if hasattr(self.model, '_orig_mod') else self.model
-        raw_model.load_state_dict(state_dict, strict=False)
+        return ckpt["epoch"] + 1
 
-        return latest_epoch + 1
+    def train_epoch(self, loader, epoch, max_epochs):
+        self.model.train()
 
-    def train(self, loader, start_epoch=0, max_epochs=None):
-        print(f"[*] Eğitim {start_epoch}. epoch üzerinden başlatıldı.")
-        epoch = start_epoch
+        total_loss = 0.0
+        total_batches = 0
 
-        while (max_epochs is None or epoch < max_epochs) and not self.stop_requested:
-            total_loss = 0
-            batch_count = 0
-            epoch_logs = []
+        pbar = tqdm(loader, desc=f"Epoch {epoch + 1}/{max_epochs}", leave=True)
 
-            for i, (pos_u, pos_v) in enumerate(loader):
-                pos_u = pos_u.to(cfg.device, non_blocking=True)
-                pos_v = pos_v.to(cfg.device, non_blocking=True)
+        for step, (pos_u, pos_v) in enumerate(pbar):
+            pos_u = pos_u.to(self.device, non_blocking=True)
+            pos_v = pos_v.to(self.device, non_blocking=True)
 
-                self.optimizer.zero_grad()
+            self.optimizer.zero_grad(set_to_none=True)
 
-                with autocast(device_type='cuda' if 'cuda' in str(cfg.device) else 'cpu'):
-                    loss = self.model(pos_u, pos_v)
+            with autocast(device_type=self.device.type, enabled=self.use_amp):
+                loss = self.model(pos_u, pos_v)
 
-                self.scaler.scale(loss).backward()
-                self.scaler.step(self.optimizer)
-                self.scaler.update()
+            self.scaler.scale(loss).backward()
 
-                if i % self.log_interval == 0:
-                    current_loss = loss.item()
-                    epoch_logs.append((i, current_loss))
-                    total_ep = max_epochs if max_epochs is not None else "∞"
-                    print(f"E:{epoch}/{total_ep} | B:{i} | Loss:{current_loss:.4f}")
+            if self.grad_clip is not None:
+                self.scaler.unscale_(self.optimizer)
+                torch.nn.utils.clip_grad_norm_(self._raw_model().parameters(), self.grad_clip)
 
-                batch_count += 1
-                total_loss += loss.item()
+            self.scaler.step(self.optimizer)
+            self.scaler.update()
 
-            for batch_idx, loss_val in epoch_logs:
-                self.log_to_csv(epoch, batch_idx, loss_val)
+            loss_value = float(loss.detach().cpu())
+            total_loss += loss_value
+            total_batches += 1
 
-            avg_loss = total_loss / batch_count if batch_count > 0 else 0
+            if step % self.log_interval == 0:
+                pbar.set_postfix(loss=f"{loss_value:.4f}", avg=f"{total_loss / total_batches:.4f}")
 
-            print(f"\n--- Epoch {epoch} bitti. Ortalama Loss: {avg_loss:.4f} ---")
+        return {
+            "loss": total_loss / max(total_batches, 1),
+            "batches": total_batches,
+        }
 
-            raw_model = self.model._orig_mod if hasattr(self.model, '_orig_mod') else self.model
-            state = {
-                'epoch': epoch,
-                'state_dict': raw_model.state_dict(),
-                'optimizer': self.optimizer.state_dict()
-            }
-            save_path = os.path.join(self._get_dim_path(), f"model_e{epoch}.pt")
-            torch.save(state, save_path)
+    def fit(self, loader, epochs, resume=True):
+        start_epoch = self.load_checkpoint() if resume else 0
 
-            epoch += 1
+        for epoch in range(start_epoch, epochs):
+            metrics = self.train_epoch(loader, epoch, epochs)
+            self.save_checkpoint(epoch, metrics)
+
+            print(f"epoch={epoch} loss={metrics['loss']:.4f} batches={metrics['batches']}")
+
+            if self.stop_requested:
+                break

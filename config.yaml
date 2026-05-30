@@ -1,14 +1,14 @@
 training:
-  emb_dim: 512
   batch_size: 4096
-  k_neg: 5
   learning_rate: 0.001
   epochs: 15
 
 paths:
-  checkpoint_dir: "checkpoints"
-  log_file: "training_loss.json"
-  results_dir: "results"
+  tokenizer: "model/tokenizer.joblib"
+  subsampled: "model/subsampled.joblib"
+  dataset: "data/trwiki.parquet"
 
-dataset:
-  path: "data/trwiki.parquet"
+model:
+  k_neg: 5
+  emb_dim: 512
+  vocab_size: 500000
