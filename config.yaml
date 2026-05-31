@@ -1,7 +1,7 @@
 seed: 1337
 
 training:
-  batch_size: 32768
+  batch_size: 65536
   epochs: 10
   window_size: 5
   subsampling_threshold: 0.00001
@@ -9,9 +9,9 @@ training:
   grad_clip: 1.0
   log_interval: 100
   compile: true
-  compile_mode: "max-autotune"
+  compile_mode: "default"
   optim:
-    name: "Adam"
+    name: "AdamW"
     lr: 0.001
 
 paths:
@@ -23,8 +23,8 @@ paths:
   dataset: "data/trwiki.parquet"
 
 model:
-  k_neg: 5
-  emb_dim: 512
+  k_neg: 15
+  emb_dim: 300
   vocab_size: 500000
   min_count: 5
   sparse: false
