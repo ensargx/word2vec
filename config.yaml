@@ -2,7 +2,7 @@ seed: 1337
 
 training:
   batch_size: 32768
-  epochs: 1
+  epochs: 10
   window_size: 5
   subsampling_threshold: 0.00001
   use_amp: true
